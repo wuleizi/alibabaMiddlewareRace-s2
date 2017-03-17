@@ -51,7 +51,7 @@ public class OrderSystemImpl implements OrderSystem, BuyerIndexOperater, GoodInd
 	private String query2Path;
 	private String query3Path;
 
-	private ExecutorService multiQueryPool2;
+	private ExecutorService multiQueryPool2; // ExecutorService 线程池接口
 	private ExecutorService multiQueryPool3;
 	private ExecutorService multiQueryPool4;
 
@@ -70,7 +70,12 @@ public class OrderSystemImpl implements OrderSystem, BuyerIndexOperater, GoodInd
 	public OrderSystemImpl() {
 
 		isConstructed = false;
-
+		/*
+		* 线程池的作用就是建立一个线程的队列，如果所申请的线程数量超过固定限制
+		* 则将线程在队尾等待，直至有冗余资源出现
+		*
+		*
+		* */
 		multiQueryPool2 = Executors.newFixedThreadPool(8);
 		multiQueryPool3 = Executors.newFixedThreadPool(8);
 		multiQueryPool4 = Executors.newFixedThreadPool(8);
@@ -113,21 +118,22 @@ public class OrderSystemImpl implements OrderSystem, BuyerIndexOperater, GoodInd
 
 	public void construct(Collection<String> orderFiles, Collection<String> buyerFiles, Collection<String> goodFiles,
 			Collection<String> storeFolders) throws IOException, InterruptedException {
-
 		this.orderFiles = new ArrayList<>(orderFiles);
 		this.buyerFiles = new ArrayList<>(buyerFiles);
 		this.goodFiles = new ArrayList<>(goodFiles);
 		long start = System.currentTimeMillis();
-		constructDir(storeFolders);
+		constructDir(storeFolders);  // 创建索引目录
 		final long dir = System.currentTimeMillis();
 		System.out.println("dir time:" + (dir - start));
 
 		// 主要对第一阶段的index time进行限制
+		// CountDownLatch 是一个同步辅助类，在完成一组正在其他线程执行的操作
+		// 之前，他允许一个或者多个线程一直等待
 		final CountDownLatch latch = new CountDownLatch(1);
 		new Thread() {
 			@Override
 			public void run() {
-
+                // 创建构建索引的writer
 				constructWriterForIndexFile();
 				long writer = System.currentTimeMillis();
 				System.out.println("writer time:" + (writer - dir));
@@ -168,6 +174,9 @@ public class OrderSystemImpl implements OrderSystem, BuyerIndexOperater, GoodInd
 		}
 		System.out.println("ORDER INDEX OK");
 		latch = new CountDownLatch(2);
+		// 简历内存中的索引 主要是buyerid和goodid两种
+		// 因为query2是根据buyerid和time进行存储的（和订单文件相同大小），
+		// 所以要把buyerid的文件和第一次出现的偏移存到内存中，goodid也是相同的道理
 		new Thread(new OtherHashIndexCreator("buyerid", buyerFiles, latch, new String[] { "buyerid" }, this)).start();
 		new Thread(new OtherHashIndexCreator("goodid", goodFiles, latch, new String[] { "goodid" }, this)).start();
 
@@ -184,6 +193,9 @@ public class OrderSystemImpl implements OrderSystem, BuyerIndexOperater, GoodInd
 	 */
 	private void constructWriterForIndexFile() {
 		// 创建4种查询的4中索引文件和买家 商品信息的writer
+		// ExtendBufferedWrite 类是将文本写入字符输出流，缓冲各个字符，从而提供单个字符，
+		// 数组和字符串的高效写入，block_size表示缓冲区大小
+		// 查询根据orderId查询信息
 		this.query1IndexWriters = new ExtendBufferedWriter[CommonConstants.QUERY1_ORDER_SPLIT_SIZE];
 		for (int i = 0; i < CommonConstants.QUERY1_ORDER_SPLIT_SIZE; i++) {
 			try {
@@ -193,7 +205,7 @@ public class OrderSystemImpl implements OrderSystem, BuyerIndexOperater, GoodInd
 
 			}
 		}
-
+		// 找一个买家一段信息之内的全部信息
 		this.query2IndexWriters = new ExtendBufferedWriter[CommonConstants.QUERY2_ORDER_SPLIT_SIZE];
 		for (int i = 0; i < CommonConstants.QUERY2_ORDER_SPLIT_SIZE; i++) {
 			try {
@@ -203,7 +215,7 @@ public class OrderSystemImpl implements OrderSystem, BuyerIndexOperater, GoodInd
 
 			}
 		}
-
+		// 找某个goodId的全部order信息
 		this.query3IndexWriters = new ExtendBufferedWriter[CommonConstants.QUERY3_ORDER_SPLIT_SIZE];
 		for (int i = 0; i < CommonConstants.QUERY3_ORDER_SPLIT_SIZE; i++) {
 			try {
@@ -329,6 +341,7 @@ public class OrderSystemImpl implements OrderSystem, BuyerIndexOperater, GoodInd
 	@Override
 	public void createBuyerIndex() {
 		// TODO Auto-generated method stub
+		// initialCapacity初始容量 LoadFactor装载因子
 		buyerMemoryIndexMap = new HashMap<>(8388608, 1f);
 	}
 

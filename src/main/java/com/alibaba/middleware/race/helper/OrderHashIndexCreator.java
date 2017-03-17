@@ -41,7 +41,7 @@ public class OrderHashIndexCreator implements Runnable {
 	private IndexOperater operater;
 	private int buildCount;
 	private int mod;
-
+	// 这个功能是要创建hashIndex文件，也就是中间文件，之后还需要合并
 	public OrderHashIndexCreator(String hashId, String queryPath, ExtendBufferedWriter[] offsetWriters,
 			Collection<String> files, int bUCKET_SIZE, int blockSize, CountDownLatch latch, String[] identities,
 			boolean byteValueFormat, IndexOperater operater) {
@@ -76,11 +76,13 @@ public class OrderHashIndexCreator implements Runnable {
 				String line = reader.readLine();
 				while (line != null) {
 					StringBuilder offSetMsg = new StringBuilder(50);
+					// kvMap 存的每行的内容
 					kvMap = StringUtils.createKVMapFromLineWithSet(line, CommonConstants.SPLITTER, this.identitiesSet);
 					length = line.getBytes().length;
 
 					// orderId一定存在且为long
 					orderKV = kvMap.getKV(hashId);
+					// bucketSize表征hash的份数，当length = 2^n的时候，hashcode & (len - 1) 就是取余
 					index = HashUtils.indexFor(
 							HashUtils.hashWithDistrub(
 									hashId.equals("orderid") ? orderKV.getLongValue() : orderKV.valueAsString()),
@@ -100,9 +102,10 @@ public class OrderHashIndexCreator implements Runnable {
 					offSetMsg.append(' ');
 					offSetMsg.append(length);
 					offSetMsg.append('\n');
-
+					// offset是源文件中的偏移量
 					offset += (length + 1);
 					buildCount++;
+					// buildCount是哈希文件中的偏移量
 					if ((buildCount & (mod - 1)) == 0) {
 						System.out.println(hashId + "construct:" + buildCount);
 					}
@@ -124,8 +127,10 @@ public class OrderHashIndexCreator implements Runnable {
 		if (this.byteValueFormat) {
 			if (hashId.equals("goodid")) {
 				// 首先关闭流 然后对索引进行排序
+				// 查询某个商品的交易信息,以及对某个商品的某个字段进行求和
 				goodSeconderyIndex();
 			} else {
+				// 查询一段时间内某个买家的交易信息
 				buyerSeconderyIndex();
 			}
 		}
@@ -146,12 +151,17 @@ public class OrderHashIndexCreator implements Runnable {
 
 	private void buyerSeconderyIndex() {
 		// query3 4的文件按buyerid进行group
+		// 这里的是初始化内存里面的内容，第一个参数是初始化table的空间，100%表示满了才扩容，默认是70%
+		// 这是通过统计出来buyer有多少个算出来的
 		// buyerMemoryIndexMap = new HashMap<>(8388608, 1f);
+		// HashMap实际上底层用的数组表示的，这里的初始大小实际上是数组空间大小
 		((BuyerIndexOperater) operater).createBuyerIndex();
 		String orderedIndex = queryPath + File.separator + CommonConstants.INDEX_SUFFIX;
 		Long offset = 0L;
 		try (BufferedOutputStream orderIndexWriter = new BufferedOutputStream(new FileOutputStream(orderedIndex))) {
 			for (int i = 0; i <= CommonConstants.QUERY2_ORDER_SPLIT_SIZE - 1; i++) {
+				// 这里是按文件处理，每次读取一个中间文件，然后存到hashmap里面然后写到大文件里面
+				// 因为100G分成1000个，每个也就100M，所以内存不会爆
 				String indexFile = queryPath + File.separator + i + CommonConstants.INDEX_SUFFIX;
 				// 对每个买家的记录进行group的map
 				// System.out.println(indexFile);
@@ -176,7 +186,7 @@ public class OrderHashIndexCreator implements Runnable {
 					// TODO: handle exception
 				}
 				for (Map.Entry<String, List<byte[]>> e : groupedBuyerOrders.entrySet()) {
-
+					// 因为metaTuple的大小是24bytes，所以800w buyer和400w good * 24也就400M，内存不会爆
 					List<byte[]> list = e.getValue();
 					MetaTuple buyerTuple = new MetaTuple(offset, list.size());
 					// 内存二级索引 buyerid-tuple
