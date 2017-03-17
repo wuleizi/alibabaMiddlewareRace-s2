@@ -177,9 +177,11 @@ public class OrderSystemImpl implements OrderSystem, BuyerIndexOperater, GoodInd
 		// 简历内存中的索引 主要是buyerid和goodid两种
 		// 因为query2是根据buyerid和time进行存储的（和订单文件相同大小），
 		// 所以要把buyerid的文件和第一次出现的偏移存到内存中，goodid也是相同的道理
+		// 之前用LRU做了缓存good和buyer，但是由于测试提升不是很大所以放弃了这个选择（因为也没做压缩,策略也没有什么优化）
+		// 因为之前怕索引建不完，刚开始是在docker上面跑，以为存在竞争所以最后做了隔离物理机，因为占内存就把LRU删除了
 		new Thread(new OtherHashIndexCreator("buyerid", buyerFiles, latch, new String[] { "buyerid" }, this)).start();
 		new Thread(new OtherHashIndexCreator("goodid", goodFiles, latch, new String[] { "goodid" }, this)).start();
-
+		// good和buyer没有索引全塞内存
 		try {
 			latch.await();
 		} catch (InterruptedException e) {
